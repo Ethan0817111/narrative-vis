@@ -154,10 +154,19 @@ function drawScene2() {
   });
 
   const N = 15;
-  const top = latestData.sort((a, b) => d3.descending(a.index, b.index)).slice(0, N);
+  let top = latestData.sort((a, b) => d3.descending(a.index, b.index)).slice(0, N);
+
+  if (currentCity) {
+    const cur = latestData.find(d => d.city === currentCity);
+    if (cur && !top.some(d => d.city === currentCity)) {
+      top = top.concat(cur);
+    }
+  }
 
   const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
-  const x = d3.scaleBand().domain(top.map(d => d.city)).range([0, innerWidth]).padding(0.2);
+
+  const domainCities = Array.from(new Set(top.map(d => d.city)));
+  const x = d3.scaleBand().domain(domainCities).range([0, innerWidth]).padding(0.2);
   const y = d3.scaleLinear().domain([0, d3.max(top, d => d.index)]).nice().range([innerHeight, 0]);
 
   g.append("g").call(d3.axisLeft(y));
@@ -172,7 +181,8 @@ function drawScene2() {
     .attr("y", d => y(d.index))
     .attr("width", x.bandwidth())
     .attr("height", d => innerHeight - y(d.index))
-    .attr("fill", "steelblue");
+    .attr("fill", d => d.city === currentCity ? "tomato" : "steelblue")
+    .attr("stroke", d => d.city === currentCity ? "black" : "none");
 
   g.selectAll("text.value")
     .data(top)
@@ -186,7 +196,7 @@ function drawScene2() {
     .text(d => d3.format(".0f")(d.index));
 
   g.append("text")
-    .text("Scene 2: Most Recent Index — Top Cities")
+    .text(`Scene 2: Most Recent Index — Top Cities${currentCity ? " (highlight: " + currentCity + ")" : ""}`)
     .attr("x", 0)
     .attr("y", -20)
     .attr("font-size", 18)
