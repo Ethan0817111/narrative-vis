@@ -1,4 +1,4 @@
-// --- SVG & Layout ---
+
 const svg = d3.select("svg");
 const width = +svg.attr("width");
 const height = +svg.attr("height");
@@ -6,13 +6,11 @@ const margin = { top: 50, right: 50, bottom: 50, left: 60 };
 const innerWidth = width - margin.left - margin.right;
 const innerHeight = height - margin.top - margin.bottom;
 
-// --- Global state ---
 let rawData = [];
 let dataByCity = new Map();
 let currentCity = null;
 let currentScene = 1;
 
-// -------- Helpers --------
 function findKey(keys, candidates) {
   const lower = keys.map(k => ({ raw: k, low: k.toLowerCase() }));
   for (const cand of candidates) {
@@ -33,7 +31,6 @@ const tryParsers = [
 
 function looksLikeDateHeader(s) {
   const t = String(s).trim();
-  // 常见宽表日期列名：YYYY-MM 或 YYYY-MM-DD 或 YYYY/MM
   return /^\d{4}[-/]\d{2}([-/]\d{2})?$/.test(t) || /^\d{6}$/.test(t) || /^\d{4}$/.test(t);
 }
 
@@ -47,8 +44,6 @@ function parseDateSmart(v) {
   const d2 = new Date(s);
   return isNaN(+d2) ? null : d2;
 }
-
-// -------- Load & Normalize --------
 d3.csv("cities-month-NSA.csv").then(rows => {
   if (!rows || !rows.length) {
     console.error("CSV is empty or failed to load.");
@@ -65,12 +60,12 @@ d3.csv("cities-month-NSA.csv").then(rows => {
     return;
   }
 
-  // 判断是“宽表”还是“长表”
+
   const otherKeys = keys.filter(k => k !== cityKey);
   const dateCols = otherKeys.filter(looksLikeDateHeader);
 
   if (dateCols.length >= Math.max(6, otherKeys.length * 0.3)) {
-    // ---- 宽表：第一列是城市，其余大量日期列 ----
+
     console.log("Detected WIDE format. City column:", cityKey, "Date columns count:", dateCols.length);
     const out = [];
     for (const row of rows) {
@@ -85,7 +80,7 @@ d3.csv("cities-month-NSA.csv").then(rows => {
     }
     rawData = out;
   } else {
-    // ---- 长表：每行包含 City/Date/Index ----
+
     const dateKey  = findKey(keys, ["date", "month", "time", "period", "year_month"]);
     const indexKey = findKey(keys, ["index", "value", "hpi", "price", "priceindex", "nsa", "house_price_index"]);
     console.log("Detected LONG format. cityKey/dateKey/indexKey:", cityKey, dateKey, indexKey);
@@ -107,12 +102,10 @@ d3.csv("cities-month-NSA.csv").then(rows => {
     return;
   }
 
-  // 排序并分组
   rawData.sort((a, b) => d3.ascending(+a.Date, +b.Date) || d3.ascending(a.City, b.City));
   dataByCity = d3.group(rawData, d => d.City);
   dataByCity.forEach(arr => arr.sort((a, b) => d3.ascending(+a.Date, +b.Date)));
 
-  // 下拉菜单
   const cityList = Array.from(dataByCity.keys()).sort(d3.ascending);
   const select = d3.select("#city-select");
   select.selectAll("option.city")
@@ -123,18 +116,15 @@ d3.csv("cities-month-NSA.csv").then(rows => {
     .attr("class", "city")
     .text(d => d);
 
-  // 默认城市
   const preferred = ["New York", "Los Angeles", "Chicago"];
   currentCity = preferred.find(c => dataByCity.has(c)) || cityList[0];
   select.property("value", currentCity);
 
-  // 初始场景
   setScene(1);
 }).catch(err => {
   console.error("Failed to load CSV:", err);
 });
 
-// -------- Scene switcher --------
 function setScene(sceneNum) {
   currentScene = sceneNum;
   svg.selectAll("*").remove();
@@ -143,7 +133,6 @@ function setScene(sceneNum) {
   else if (sceneNum === 3) drawScene3();
 }
 
-// -------- Trigger --------
 function updateSelectedCity() {
   const selected = document.getElementById("city-select").value;
   if (selected && dataByCity.has(selected)) {
@@ -152,7 +141,6 @@ function updateSelectedCity() {
   }
 }
 
-// -------- Common axes --------
 function addAxes(g, x, y) {
   g.append("g").call(d3.axisLeft(y).ticks(6));
   g.append("g")
@@ -160,7 +148,6 @@ function addAxes(g, x, y) {
     .call(d3.axisBottom(x));
 }
 
-// -------- Scene 1: 3-city trends --------
 function drawScene1() {
   const cities = (() => {
     const preferred = ["New York", "Los Angeles", "Chicago"].filter(c => dataByCity.has(c));
@@ -217,9 +204,7 @@ function drawScene1() {
     .attr("font-weight", "bold");
 }
 
-// -------- Scene 2: Latest (or most recent) bar chart --------
 function drawScene2() {
-  // 以各城市最后一条（或全局最新月，但城市可能缺这个月）来对比
   const latestData = Array.from(dataByCity, ([city, values]) => {
     const rec = values[values.length - 1];
     return { city, index: rec.Index, date: rec.Date };
@@ -264,7 +249,6 @@ function drawScene2() {
     .attr("font-weight", "bold");
 }
 
-// -------- Scene 3: Drill-down for selected city --------
 function drawScene3() {
   if (!currentCity || !dataByCity.has(currentCity)) return;
   const cityData = dataByCity.get(currentCity);
