@@ -92,9 +92,10 @@ function updateSelectedCity() {
   const selected = document.getElementById("city-select").value;
   if (selected && dataByCity.has(selected)) {
     currentCity = selected;
-    if (currentScene === 3) drawScene3();
+    setScene(currentScene);
   }
 }
+
 
 function addAxes(g, x, y) {
   g.append("g").call(d3.axisLeft(y).ticks(6));
