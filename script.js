@@ -18,6 +18,7 @@ const tryParsers = [
   d3.utcParse("%Y%m"),
   d3.utcParse("%Y")
 ];
+
 function parseDateSmart(v) {
   if (v instanceof Date) return v;
   const s = String(v).trim();
@@ -27,6 +28,28 @@ function parseDateSmart(v) {
   }
   const d2 = new Date(s);
   return isNaN(+d2) ? null : d2;
+}
+
+function addAxes(g, x, y) {
+  g.append("g").call(d3.axisLeft(y).ticks(6));
+  g.append("g")
+    .attr("transform", `translate(0,${innerHeight})`)
+    .call(d3.axisBottom(x));
+}
+
+function addAnnotation(g, title, subtitle) {
+  g.append("text")
+    .attr("class", "anno-title")
+    .attr("x", 0)
+    .attr("y", -20)
+    .text(title);
+  if (subtitle) {
+    g.append("text")
+      .attr("class", "anno-sub")
+      .attr("x", 0)
+      .attr("y", -4)
+      .text(subtitle);
+  }
 }
 
 d3.csv("cities-month-NSA.csv").then(rows => {
@@ -96,12 +119,6 @@ function updateSelectedCity() {
   }
 }
 
-
-function addAxes(g, x, y) {
-  g.append("g").call(d3.axisLeft(y).ticks(6));
-  g.append("g").attr("transform", `translate(0,${innerHeight})`).call(d3.axisBottom(x));
-}
-
 function drawScene1() {
   const prefer = ["NY-New York", "CA-Los Angeles", "IL-Chicago", "Composite-20", "National-US"];
   const existing = prefer.filter(c => dataByCity.has(c));
@@ -109,10 +126,18 @@ function drawScene1() {
   const cities = existing.concat(rest).slice(0, 3);
 
   const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
-  const x = d3.scaleTime().domain(d3.extent(rawData, d => d.Date)).range([0, innerWidth]);
+
+  const x = d3.scaleTime()
+    .domain(d3.extent(rawData, d => d.Date))
+    .range([0, innerWidth]);
+
   const y = d3.scaleLinear()
-    .domain([d3.min(rawData, d => d.Index) * 0.95, d3.max(rawData, d => d.Index) * 1.05])
-    .nice().range([innerHeight, 0]);
+    .domain([
+      d3.min(rawData, d => d.Index) * 0.95,
+      d3.max(rawData, d => d.Index) * 1.05
+    ])
+    .nice()
+    .range([innerHeight, 0]);
 
   addAxes(g, x, y);
 
@@ -140,12 +165,7 @@ function drawScene1() {
       .text(city);
   });
 
-  g.append("text")
-    .text("Scene 1: House Price Trends in Three Cities")
-    .attr("x", 0)
-    .attr("y", -20)
-    .attr("font-size", 18)
-    .attr("font-weight", "bold");
+  addAnnotation(g, "Scene 1: House Price Trends in Three Cities", "Compare long-term trends across three cities.");
 }
 
 function drawScene2() {
@@ -196,12 +216,7 @@ function drawScene2() {
     .attr("font-size", 10)
     .text(d => d3.format(".0f")(d.index));
 
-  g.append("text")
-    .text(`Scene 2: Most Recent Index — Top Cities${currentCity ? " (highlight: " + currentCity + ")" : ""}`)
-    .attr("x", 0)
-    .attr("y", -20)
-    .attr("font-size", 18)
-    .attr("font-weight", "bold");
+  addAnnotation(g, "Scene 2: Most Recent Index — Top Cities", "Bars show each city's latest index; your selection is highlighted.");
 }
 
 function drawScene3() {
@@ -209,6 +224,7 @@ function drawScene3() {
   const cityData = dataByCity.get(currentCity);
 
   const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+
   const x = d3.scaleTime().domain(d3.extent(cityData, d => d.Date)).range([0, innerWidth]);
   const y = d3.scaleLinear().domain(d3.extent(cityData, d => d.Index)).nice().range([innerHeight, 0]);
 
@@ -227,10 +243,53 @@ function drawScene3() {
   g.append("text").attr("x", x(first.Date)).attr("y", y(first.Index) - 8).attr("font-size", 10).text(d3.timeFormat("%Y-%m")(first.Date));
   g.append("text").attr("x", x(last.Date)).attr("y", y(last.Index) - 8).attr("font-size", 10).attr("text-anchor", "end").text(d3.timeFormat("%Y-%m")(last.Date));
 
-  g.append("text")
-    .text(`Scene 3: House Price Trend — ${currentCity}`)
-    .attr("x", 0)
-    .attr("y", -20)
-    .attr("font-size", 18)
-    .attr("font-weight", "bold");
+  addAnnotation(g, `Scene 3: House Price Trend — ${currentCity}`, "Use the dropdown to switch city; hover to see exact values.");
+
+  const tip = d3.select("#tooltip");
+  const bisect = d3.bisector(d => d.Date).left;
+
+  const focus = g.append("g").style("display", "none");
+  focus.append("line")
+    .attr("y1", 0)
+    .attr("y2", innerHeight)
+    .attr("stroke", "#aaa")
+    .attr("stroke-dasharray", "3,3");
+  focus.append("circle")
+    .attr("r", 3)
+    .attr("fill", "orange")
+    .attr("stroke", "none");
+
+  g.append("rect")
+    .attr("width", innerWidth)
+    .attr("height", innerHeight)
+    .attr("fill", "none")
+    .style("pointer-events", "all")
+    .on("mouseenter", () => focus.style("display", null))
+    .on("mouseleave", () => {
+      focus.style("display", "none");
+      tip.style("opacity", 0);
+    })
+    .on("mousemove", (event) => {
+      const [mx] = d3.pointer(event);
+      const x0 = x.invert(mx);
+      let i = bisect(cityData, x0);
+      if (i <= 0) i = 1;
+      if (i >= cityData.length) i = cityData.length - 1;
+      const d0 = cityData[i - 1];
+      const d1 = cityData[i];
+      const d = x0 - d0.Date > d1.Date - x0 ? d1 : d0;
+
+      const px = x(d.Date);
+      const py = y(d.Index);
+
+      focus.select("line").attr("x1", px).attr("x2", px);
+      focus.select("circle").attr("cx", px).attr("cy", py);
+
+      const tf = d3.timeFormat("%Y-%m");
+      tip
+        .style("opacity", 1)
+        .style("left", (margin.left + px) + "px")
+        .style("top", (margin.top + py) + "px")
+        .html(`${tf(d.Date)}<br><b>${d3.format(".2f")(d.Index)}</b>`);
+    });
 }
