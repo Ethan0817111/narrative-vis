@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!-- <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -19,6 +19,39 @@
   </div>
 
   <svg width="900" height="500"></svg>
+
+  <script src="script.js"></script>
+</body>
+</html>
+ -->
+
+ <!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>U.S. City House Price Narrative Visualization</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" href="data:," />
+</head>
+<body>
+  <h1>U.S. City House Price Trends (NSA)</h1>
+
+  <div id="controls">
+    <button onclick="setScene(1)">Scene 1</button>
+    <button onclick="setScene(2)">Scene 2</button>
+    <button onclick="setScene(3)">Scene 3</button>
+    <select id="city-select" onchange="updateSelectedCity()">
+      <option value="">Select a city</option>
+    </select>
+  </div>
+
+  <p id="hint">Use the dropdown to drill into a city; Scene 2 highlights your selection.</p>
+
+  <svg width="900" height="520"></svg>
+
+  <div id="tooltip" class="tooltip" style="opacity:0;"></div>
 
   <script src="script.js"></script>
 </body>
