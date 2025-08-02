@@ -12,7 +12,7 @@ let dataByCity = new Map();
 let currentCity = null;
 let currentScene = 1;
 
-// --- Robust column detection helpers ---
+// -------- Helpers --------
 function findKey(keys, candidates) {
   const lower = keys.map(k => ({ raw: k, low: k.toLowerCase() }));
   for (const cand of candidates) {
@@ -31,27 +31,24 @@ const tryParsers = [
   d3.utcParse("%Y") // fallback
 ];
 
+function looksLikeDateHeader(s) {
+  const t = String(s).trim();
+  // 常见宽表日期列名：YYYY-MM 或 YYYY-MM-DD 或 YYYY/MM
+  return /^\d{4}[-/]\d{2}([-/]\d{2})?$/.test(t) || /^\d{6}$/.test(t) || /^\d{4}$/.test(t);
+}
+
 function parseDateSmart(v) {
   if (v instanceof Date) return v;
-  if (typeof v === "number") {
-    // treat YYYYMM or YYYY as number
-    const s = String(v);
-    for (const p of tryParsers) {
-      const d = p(s.length === 6 ? s : s.padEnd(7, "-01")); // crude help
-      if (d) return d;
-    }
-  }
   const s = String(v).trim();
   for (const p of tryParsers) {
     const d = p(s);
     if (d) return d;
   }
-  // last resort: Date constructor (may be timezone dependent)
   const d2 = new Date(s);
   return isNaN(+d2) ? null : d2;
 }
 
-// --- Load data (robust to different headers) ---
+// -------- Load & Normalize --------
 d3.csv("cities-month-NSA.csv").then(rows => {
   if (!rows || !rows.length) {
     console.error("CSV is empty or failed to load.");
@@ -59,35 +56,63 @@ d3.csv("cities-month-NSA.csv").then(rows => {
   }
 
   const keys = Object.keys(rows[0]);
+  console.log("CSV Header keys:", keys);
 
-  // Try to detect column names
-  const cityKey  = findKey(keys, ["city", "regionname", "region", "metro", "location"]);
-  const dateKey  = findKey(keys, ["date", "month", "time", "period", "year_month"]);
-  const indexKey = findKey(keys, ["index", "value", "hpi", "price", "priceindex", "nsa", "house_price_index"]);
-
-  if (!cityKey || !dateKey || !indexKey) {
-    console.error("Cannot detect column names. Found keys: ", keys);
+  // 先找城市列
+  const cityKey = findKey(keys, ["city", "regionname", "region", "metro", "location", "area", "name"]);
+  if (!cityKey) {
+    console.error("Cannot detect city column from headers:", keys);
     return;
   }
 
-  // Normalize data -> {City, Date, Index}
-  rawData = rows.map(r => {
-    const City = String(r[cityKey]).trim();
-    const DateObj = parseDateSmart(r[dateKey]);
-    const Index = +r[indexKey];
-    return { City, Date: DateObj, Index };
-  }).filter(d => d.City && d.Date instanceof Date && !isNaN(d.Index));
+  // 判断是“宽表”还是“长表”
+  const otherKeys = keys.filter(k => k !== cityKey);
+  const dateCols = otherKeys.filter(looksLikeDateHeader);
+
+  if (dateCols.length >= Math.max(6, otherKeys.length * 0.3)) {
+    // ---- 宽表：第一列是城市，其余大量日期列 ----
+    console.log("Detected WIDE format. City column:", cityKey, "Date columns count:", dateCols.length);
+    const out = [];
+    for (const row of rows) {
+      const City = String(row[cityKey]).trim();
+      if (!City) continue;
+      for (const col of dateCols) {
+        const DateObj = parseDateSmart(col);
+        const val = row[col];
+        const Index = val === null || val === undefined || val === "" ? NaN : +val;
+        if (DateObj && !isNaN(Index)) out.push({ City, Date: DateObj, Index });
+      }
+    }
+    rawData = out;
+  } else {
+    // ---- 长表：每行包含 City/Date/Index ----
+    const dateKey  = findKey(keys, ["date", "month", "time", "period", "year_month"]);
+    const indexKey = findKey(keys, ["index", "value", "hpi", "price", "priceindex", "nsa", "house_price_index"]);
+    console.log("Detected LONG format. cityKey/dateKey/indexKey:", cityKey, dateKey, indexKey);
+
+    if (!dateKey || !indexKey) {
+      console.error("Cannot detect date/index columns. Headers:", keys);
+      return;
+    }
+
+    rawData = rows.map(r => ({
+      City: String(r[cityKey]).trim(),
+      Date: parseDateSmart(r[dateKey]),
+      Index: +r[indexKey]
+    })).filter(d => d.City && d.Date instanceof Date && !isNaN(d.Index));
+  }
 
   if (!rawData.length) {
-    console.error("After parsing, no valid rows.");
+    console.error("After normalization, no valid rows.");
     return;
   }
 
-  // Sort by date per city for clean lines
+  // 排序并分组
+  rawData.sort((a, b) => d3.ascending(+a.Date, +b.Date) || d3.ascending(a.City, b.City));
   dataByCity = d3.group(rawData, d => d.City);
   dataByCity.forEach(arr => arr.sort((a, b) => d3.ascending(+a.Date, +b.Date)));
 
-  // Populate city dropdown
+  // 下拉菜单
   const cityList = Array.from(dataByCity.keys()).sort(d3.ascending);
   const select = d3.select("#city-select");
   select.selectAll("option.city")
@@ -98,18 +123,18 @@ d3.csv("cities-month-NSA.csv").then(rows => {
     .attr("class", "city")
     .text(d => d);
 
-  // Choose default city
+  // 默认城市
   const preferred = ["New York", "Los Angeles", "Chicago"];
   currentCity = preferred.find(c => dataByCity.has(c)) || cityList[0];
   select.property("value", currentCity);
 
-  // Initial scene
+  // 初始场景
   setScene(1);
 }).catch(err => {
   console.error("Failed to load CSV:", err);
 });
 
-// --- Scene switcher ---
+// -------- Scene switcher --------
 function setScene(sceneNum) {
   currentScene = sceneNum;
   svg.selectAll("*").remove();
@@ -118,7 +143,7 @@ function setScene(sceneNum) {
   else if (sceneNum === 3) drawScene3();
 }
 
-// --- UI trigger ---
+// -------- Trigger --------
 function updateSelectedCity() {
   const selected = document.getElementById("city-select").value;
   if (selected && dataByCity.has(selected)) {
@@ -127,7 +152,7 @@ function updateSelectedCity() {
   }
 }
 
-// --- Common axis builders ---
+// -------- Common axes --------
 function addAxes(g, x, y) {
   g.append("g").call(d3.axisLeft(y).ticks(6));
   g.append("g")
@@ -135,7 +160,7 @@ function addAxes(g, x, y) {
     .call(d3.axisBottom(x));
 }
 
-// --- Scene 1: Three-city trend (fallbacks to first three cities) ---
+// -------- Scene 1: 3-city trends --------
 function drawScene1() {
   const cities = (() => {
     const preferred = ["New York", "Los Angeles", "Chicago"].filter(c => dataByCity.has(c));
@@ -161,10 +186,7 @@ function drawScene1() {
   addAxes(g, x, y);
 
   const color = d3.scaleOrdinal(d3.schemeCategory10).domain(cities);
-
-  const line = d3.line()
-    .x(d => x(d.Date))
-    .y(d => y(d.Index));
+  const line = d3.line().x(d => x(d.Date)).y(d => y(d.Index));
 
   cities.forEach(city => {
     const cityData = dataByCity.get(city);
@@ -176,7 +198,6 @@ function drawScene1() {
       .attr("stroke-width", 2)
       .attr("d", line);
 
-    // right-end label
     const last = cityData[cityData.length - 1];
     g.append("text")
       .attr("x", innerWidth - 4)
@@ -196,30 +217,21 @@ function drawScene1() {
     .attr("font-weight", "bold");
 }
 
-// --- Scene 2: Latest month bar chart (top N cities) ---
+// -------- Scene 2: Latest (or most recent) bar chart --------
 function drawScene2() {
-  // Find latest month present across all data
-  const latestMonth = d3.max(rawData, d => +d.Date);
+  // 以各城市最后一条（或全局最新月，但城市可能缺这个月）来对比
   const latestData = Array.from(dataByCity, ([city, values]) => {
-    // values is sorted by Date
-    const rec = values.find(v => +v.Date === latestMonth) || values[values.length - 1];
+    const rec = values[values.length - 1];
     return { city, index: rec.Index, date: rec.Date };
   });
 
-  // Sort by index desc and take top N for legibility
   const N = 15;
   const top = latestData.sort((a, b) => d3.descending(a.index, b.index)).slice(0, N);
 
   const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
 
-  const x = d3.scaleBand()
-    .domain(top.map(d => d.city))
-    .range([0, innerWidth])
-    .padding(0.2);
-
-  const y = d3.scaleLinear()
-    .domain([0, d3.max(top, d => d.index)]).nice()
-    .range([innerHeight, 0]);
+  const x = d3.scaleBand().domain(top.map(d => d.city)).range([0, innerWidth]).padding(0.2);
+  const y = d3.scaleLinear().domain([0, d3.max(top, d => d.index)]).nice().range([innerHeight, 0]);
 
   addAxes(g, x, y);
 
@@ -244,34 +256,23 @@ function drawScene2() {
     .attr("font-size", 10)
     .text(d => d3.format(".0f")(d.index));
 
-  // rotate x labels for readability
-  g.selectAll("g.x.axis text")
-    .attr("transform", "rotate(-40)")
-    .style("text-anchor", "end");
-
   g.append("text")
-    .text("Scene 2: Latest (or Most Recent) Index — Top Cities")
+    .text("Scene 2: Most Recent Index — Top Cities")
     .attr("x", 0)
     .attr("y", -20)
     .attr("font-size", 18)
     .attr("font-weight", "bold");
 }
 
-// --- Scene 3: Drill-down line for selected city ---
+// -------- Scene 3: Drill-down for selected city --------
 function drawScene3() {
   if (!currentCity || !dataByCity.has(currentCity)) return;
-
   const cityData = dataByCity.get(currentCity);
 
   const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
 
-  const x = d3.scaleTime()
-    .domain(d3.extent(cityData, d => d.Date))
-    .range([0, innerWidth]);
-
-  const y = d3.scaleLinear()
-    .domain(d3.extent(cityData, d => d.Index)).nice()
-    .range([innerHeight, 0]);
+  const x = d3.scaleTime().domain(d3.extent(cityData, d => d.Date)).range([0, innerWidth]);
+  const y = d3.scaleLinear().domain(d3.extent(cityData, d => d.Index)).nice().range([innerHeight, 0]);
 
   addAxes(g, x, y);
 
@@ -280,14 +281,9 @@ function drawScene3() {
     .attr("fill", "none")
     .attr("stroke", "orange")
     .attr("stroke-width", 2)
-    .attr("d", d3.line()
-      .x(d => x(d.Date))
-      .y(d => y(d.Index))
-    );
+    .attr("d", d3.line().x(d => x(d.Date)).y(d => y(d.Index)));
 
-  // simple annotation: mark first & last
-  const first = cityData[0];
-  const last = cityData[cityData.length - 1];
+  const first = cityData[0], last = cityData[cityData.length - 1];
   g.append("circle").attr("cx", x(first.Date)).attr("cy", y(first.Index)).attr("r", 3).attr("fill", "orange");
   g.append("circle").attr("cx", x(last.Date)).attr("cy", y(last.Index)).attr("r", 3).attr("fill", "orange");
   g.append("text").attr("x", x(first.Date)).attr("y", y(first.Index) - 8).attr("font-size", 10).text(d3.timeFormat("%Y-%m")(first.Date));
