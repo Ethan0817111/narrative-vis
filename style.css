@@ -1,4 +1,4 @@
-body {
+/* body {
   font-family: sans-serif;
   margin: 40px;
 }
@@ -11,4 +11,63 @@ button {
 }
 select {
   padding: 6px;
+}
+ */
+
+
+body {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  margin: 40px;
+  color: #111;
+}
+h1 {
+  margin: 0 0 10px;
+  font-size: 24px;
+}
+#controls {
+  margin: 10px 0 8px;
+}
+button {
+  margin-right: 10px;
+  padding: 6px 12px;
+  border: 1px solid #ccc;
+  background: #f6f6f6;
+  border-radius: 6px;
+  cursor: pointer;
+}
+button:hover {
+  background: #eee;
+}
+select {
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+}
+#hint {
+  margin: 6px 0 16px;
+  font-size: 12px;
+  color: #555;
+}
+
+.anno-title {
+  font-weight: 700;
+  font-size: 18px;
+  fill: #111;
+}
+.anno-sub {
+  font-size: 12px;
+  fill: #666;
+}
+
+/* Tooltip */
+.tooltip {
+  position: absolute;
+  padding: 6px 8px;
+  background: rgba(0, 0, 0, 0.8);
+  color: #fff;
+  border-radius: 4px;
+  font-size: 12px;
+  pointer-events: none;
+  transform: translate(-50%, -120%);
+  white-space: nowrap;
 }
