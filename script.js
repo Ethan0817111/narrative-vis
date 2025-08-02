@@ -1,4 +1,3 @@
-
 const svg = d3.select("svg");
 const width = +svg.attr("width");
 const height = +svg.attr("height");
@@ -11,29 +10,14 @@ let dataByCity = new Map();
 let currentCity = null;
 let currentScene = 1;
 
-function findKey(keys, candidates) {
-  const lower = keys.map(k => ({ raw: k, low: k.toLowerCase() }));
-  for (const cand of candidates) {
-    const i = lower.findIndex(o => o.low === cand || o.low.includes(cand));
-    if (i !== -1) return lower[i].raw;
-  }
-  return null;
-}
-
 const tryParsers = [
   d3.utcParse("%Y-%m-%d"),
   d3.utcParse("%Y/%m/%d"),
   d3.utcParse("%Y-%m"),
   d3.utcParse("%Y/%m"),
   d3.utcParse("%Y%m"),
-  d3.utcParse("%Y") // fallback
+  d3.utcParse("%Y")
 ];
-
-function looksLikeDateHeader(s) {
-  const t = String(s).trim();
-  return /^\d{4}[-/]\d{2}([-/]\d{2})?$/.test(t) || /^\d{6}$/.test(t) || /^\d{4}$/.test(t);
-}
-
 function parseDateSmart(v) {
   if (v instanceof Date) return v;
   const s = String(v).trim();
@@ -44,65 +28,38 @@ function parseDateSmart(v) {
   const d2 = new Date(s);
   return isNaN(+d2) ? null : d2;
 }
+
 d3.csv("cities-month-NSA.csv").then(rows => {
   if (!rows || !rows.length) {
-    console.error("CSV is empty or failed to load.");
+    console.error("CSV is empty.");
     return;
   }
 
   const keys = Object.keys(rows[0]);
-  console.log("CSV Header keys:", keys);
+  const dateCol = keys.find(k => k.toLowerCase() === "date");
+  if (!dateCol) {
+    console.error("No 'Date' column found. Headers:", keys);
+    return;
+  }
+  const cityCols = keys.filter(k => k !== dateCol);
 
-  // 先找城市列
-  const cityKey = findKey(keys, ["city", "regionname", "region", "metro", "location", "area", "name"]);
-  if (!cityKey) {
-    console.error("Cannot detect city column from headers:", keys);
+  const long = [];
+  for (const row of rows) {
+    const dDate = parseDateSmart(row[dateCol]);
+    if (!dDate) continue;
+    for (const col of cityCols) {
+      const val = row[col];
+      const idx = val === null || val === undefined || val === "" ? NaN : +val;
+      if (!isNaN(idx)) long.push({ City: col.trim(), Date: dDate, Index: idx });
+    }
+  }
+  if (!long.length) {
+    console.error("After pivot, no valid rows.");
     return;
   }
 
-
-  const otherKeys = keys.filter(k => k !== cityKey);
-  const dateCols = otherKeys.filter(looksLikeDateHeader);
-
-  if (dateCols.length >= Math.max(6, otherKeys.length * 0.3)) {
-
-    console.log("Detected WIDE format. City column:", cityKey, "Date columns count:", dateCols.length);
-    const out = [];
-    for (const row of rows) {
-      const City = String(row[cityKey]).trim();
-      if (!City) continue;
-      for (const col of dateCols) {
-        const DateObj = parseDateSmart(col);
-        const val = row[col];
-        const Index = val === null || val === undefined || val === "" ? NaN : +val;
-        if (DateObj && !isNaN(Index)) out.push({ City, Date: DateObj, Index });
-      }
-    }
-    rawData = out;
-  } else {
-
-    const dateKey  = findKey(keys, ["date", "month", "time", "period", "year_month"]);
-    const indexKey = findKey(keys, ["index", "value", "hpi", "price", "priceindex", "nsa", "house_price_index"]);
-    console.log("Detected LONG format. cityKey/dateKey/indexKey:", cityKey, dateKey, indexKey);
-
-    if (!dateKey || !indexKey) {
-      console.error("Cannot detect date/index columns. Headers:", keys);
-      return;
-    }
-
-    rawData = rows.map(r => ({
-      City: String(r[cityKey]).trim(),
-      Date: parseDateSmart(r[dateKey]),
-      Index: +r[indexKey]
-    })).filter(d => d.City && d.Date instanceof Date && !isNaN(d.Index));
-  }
-
-  if (!rawData.length) {
-    console.error("After normalization, no valid rows.");
-    return;
-  }
-
-  rawData.sort((a, b) => d3.ascending(+a.Date, +b.Date) || d3.ascending(a.City, b.City));
+  long.sort((a, b) => d3.ascending(+a.Date, +b.Date) || d3.ascending(a.City, b.City));
+  rawData = long;
   dataByCity = d3.group(rawData, d => d.City);
   dataByCity.forEach(arr => arr.sort((a, b) => d3.ascending(+a.Date, +b.Date)));
 
@@ -116,14 +73,12 @@ d3.csv("cities-month-NSA.csv").then(rows => {
     .attr("class", "city")
     .text(d => d);
 
-  const preferred = ["New York", "Los Angeles", "Chicago"];
-  currentCity = preferred.find(c => dataByCity.has(c)) || cityList[0];
+  const prefer = ["NY-New York", "CA-Los Angeles", "IL-Chicago", "Composite-20", "National-US"];
+  currentCity = prefer.find(c => dataByCity.has(c)) || cityList[0];
   select.property("value", currentCity);
 
   setScene(1);
-}).catch(err => {
-  console.error("Failed to load CSV:", err);
-});
+}).catch(err => console.error("Failed to load CSV:", err));
 
 function setScene(sceneNum) {
   currentScene = sceneNum;
@@ -143,32 +98,20 @@ function updateSelectedCity() {
 
 function addAxes(g, x, y) {
   g.append("g").call(d3.axisLeft(y).ticks(6));
-  g.append("g")
-    .attr("transform", `translate(0,${innerHeight})`)
-    .call(d3.axisBottom(x));
+  g.append("g").attr("transform", `translate(0,${innerHeight})`).call(d3.axisBottom(x));
 }
 
 function drawScene1() {
-  const cities = (() => {
-    const preferred = ["New York", "Los Angeles", "Chicago"].filter(c => dataByCity.has(c));
-    if (preferred.length >= 3) return preferred.slice(0, 3);
-    const rest = Array.from(dataByCity.keys()).filter(c => !preferred.includes(c));
-    return preferred.concat(rest).slice(0, 3);
-  })();
+  const prefer = ["NY-New York", "CA-Los Angeles", "IL-Chicago", "Composite-20", "National-US"];
+  const existing = prefer.filter(c => dataByCity.has(c));
+  const rest = Array.from(dataByCity.keys()).filter(c => !existing.includes(c));
+  const cities = existing.concat(rest).slice(0, 3);
 
   const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
-
-  const x = d3.scaleTime()
-    .domain(d3.extent(rawData, d => d.Date))
-    .range([0, innerWidth]);
-
+  const x = d3.scaleTime().domain(d3.extent(rawData, d => d.Date)).range([0, innerWidth]);
   const y = d3.scaleLinear()
-    .domain([
-      d3.min(rawData, d => d.Index) * 0.95,
-      d3.max(rawData, d => d.Index) * 1.05
-    ])
-    .nice()
-    .range([innerHeight, 0]);
+    .domain([d3.min(rawData, d => d.Index) * 0.95, d3.max(rawData, d => d.Index) * 1.05])
+    .nice().range([innerHeight, 0]);
 
   addAxes(g, x, y);
 
@@ -214,11 +157,12 @@ function drawScene2() {
   const top = latestData.sort((a, b) => d3.descending(a.index, b.index)).slice(0, N);
 
   const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
-
   const x = d3.scaleBand().domain(top.map(d => d.city)).range([0, innerWidth]).padding(0.2);
   const y = d3.scaleLinear().domain([0, d3.max(top, d => d.index)]).nice().range([innerHeight, 0]);
 
-  addAxes(g, x, y);
+  g.append("g").call(d3.axisLeft(y));
+  const gx = g.append("g").attr("transform", `translate(0,${innerHeight})`).call(d3.axisBottom(x));
+  gx.selectAll("text").attr("transform", "rotate(-40)").style("text-anchor", "end");
 
   g.selectAll("rect")
     .data(top)
@@ -254,7 +198,6 @@ function drawScene3() {
   const cityData = dataByCity.get(currentCity);
 
   const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
-
   const x = d3.scaleTime().domain(d3.extent(cityData, d => d.Date)).range([0, innerWidth]);
   const y = d3.scaleLinear().domain(d3.extent(cityData, d => d.Index)).nice().range([innerHeight, 0]);
 
